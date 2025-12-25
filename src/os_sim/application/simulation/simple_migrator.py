@@ -53,14 +53,14 @@ class SimpleTaskMigrator(ITaskMigrator):
         if not new_proc:
             # no memory to allocate for new proc
             return
-
+        cpu_time = proc_to_move.remaining
         proc_to_move.remaining = 0
         proc_to_move.state = ProcessState.MIGRATED
 
         os_logger = getattr(most_loaded.os(), "logger", None)
         if os_logger:
             os_logger.log(
-                f"[MIGRATION] moved pid={proc_to_move.pid} "
+                f"[MIGRATION] moved pid={proc_to_move.pid} with cpu_time={cpu_time} "
                 f"from device {most_loaded.id} to device {least_loaded.id} "
                 f"(new pid={new_proc.pid})"
             )

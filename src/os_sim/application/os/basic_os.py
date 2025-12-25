@@ -19,6 +19,8 @@ class BasicOperatingSystem(IOperatingSystem):
 
     logger: ILogger | None = None
 
+    device_id: int | None = None
+
     _processes: List[Process] = field(default_factory=list)
     _current: Optional[Process] = None
     _next_pid: int = 1
@@ -28,11 +30,6 @@ class BasicOperatingSystem(IOperatingSystem):
 
     def create_process(self, cpu_time: int, mem_required: int) -> Optional[Process]:
         if not self.memory.alloc(mem_required):
-            if self.logger:
-                self.logger.log(
-                    f"[OS] Cannot allocate memory for new process "
-                    f"(cpu_time={cpu_time}, mem={mem_required})"
-                )
             return None
 
         p = Process(pid=self._next_pid, cpu_time=cpu_time, mem_required=mem_required)
@@ -41,21 +38,18 @@ class BasicOperatingSystem(IOperatingSystem):
         self._processes.append(p)
         self.scheduler.add(p)
 
-        if self.logger:
-            self.logger.log(
-                f"[OS] Created process pid={p.pid}, cpu_time={p.cpu_time}, "
-                f"mem={p.mem_required}"
-            )
-
         return p
 
     def processes(self) -> Iterable[Process]:
         return tuple(self._processes)
 
     def _pick_new_current(self) -> None:
-        self._current = self.scheduler.pick_next()
-        if self._current:
+        next_proc = self.scheduler.pick_next()
+        if next_proc and next_proc.state not in (ProcessState.FINISHED, ProcessState.MIGRATED):
+            self._current = next_proc
             self._current.state = ProcessState.RUNNING
+        else:
+            self._current = None
 
     def tick(self) -> None:
         # check income msg
@@ -63,14 +57,18 @@ class BasicOperatingSystem(IOperatingSystem):
             self.logger.log(f"[OS] Processing {len(self._inbox)} incoming messages")
             self._inbox.clear()
 
-        # if current proc is FINISHED, pick a new one
-        if self._current is None or self._current.state is ProcessState.FINISHED:
+        # if current proc is FINISHED or MIGRATED, pick a new one
+        if self._current is None or self._current.state in (ProcessState.FINISHED, ProcessState.MIGRATED):
             self._pick_new_current()
 
         if not self._current:
             # remove dead procs
             self._cleanup_finished()
             return  # idle
+
+        if self._current.state is ProcessState.MIGRATED:
+            self._cleanup_finished()
+            return
 
         # execute current proc
         self._current.remaining -= 1
@@ -104,10 +102,11 @@ class BasicOperatingSystem(IOperatingSystem):
             if p.state in (ProcessState.FINISHED, ProcessState.MIGRATED):
                 self.scheduler.remove(p)
                 self.memory.free(p.mem_required)
-                if self.logger:
+                if self.logger and p.state == ProcessState.FINISHED:
+                    dev_info = f" on device {self.device_id}" if self.device_id is not None else ""
                     self.logger.log(
                         f"[OS] Reaped {p.state.name.lower()} process pid={p.pid}, "
-                        f"mem={p.mem_required}"
+                        f"mem={p.mem_required}{dev_info}"
                     )
             else:
                 alive.append(p)

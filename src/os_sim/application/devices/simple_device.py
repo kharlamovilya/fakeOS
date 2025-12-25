@@ -11,6 +11,11 @@ class SimpleDevice(IDevice):
     _os: IOperatingSystem
     _state: DeviceState = DeviceState.ONLINE
 
+    def __post_init__(self) -> None:
+        # If OS supports device_id, set it
+        if hasattr(self._os, "device_id"):
+            self._os.device_id = self._id
+
     @property
     def id(self) -> int:
         return self._id

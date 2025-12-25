@@ -22,10 +22,6 @@ ProcTemplate = Callable[[int], tuple[int, int]]  # (device_index) -> (cpu_time, 
 
 PROC_TEMPLATES: Sequence[ProcTemplate] = [
     lambda i: (5 + i, i),
-    lambda i: (5 + i, i),
-    lambda i: (5 + i, i),
-    lambda i: (5 + i, i),
-    lambda i: (5 + i, i),
 ]
 
 # === Simulation Parameters ===
@@ -78,7 +74,11 @@ def build_demo_simulation(
         for k in range(procs_per_device):
             template = proc_templates[k % len(proc_templates)]
             cpu, mem_req = template(i)
-            os_.create_process(cpu_time=cpu, mem_required=mem_req)
+            proc = os_.create_process(cpu_time=cpu, mem_required=mem_req)
+            if proc is None:
+                print(f"Cannot create process on device {i}: not enough memory")
+            else:
+                logger.log(f"[CMD] Created process pid={proc.pid} with cpu_time={cpu} on device {i}")
 
         devices.append(dev)
 
@@ -167,7 +167,7 @@ def print_state(sim: SimulationEngine) -> None:
 
 def print_help() -> None:
     print(color("Commands:", BOLD))
-    print("  " + color("help", FG_CYAN) + "                    - show this help")
+    print("  " + color("help", FG_CYAN) + "                      - show this help")
     print("  " + color("step [N]", FG_CYAN) + "                  - advance simulation by N steps (default 1)")
     print("  " + color("run N", FG_CYAN) + "                     - same as step N")
     print("  " + color("watch N [delay]", FG_CYAN) + "           - auto-step N times with optional delay (seconds)")
@@ -175,6 +175,7 @@ def print_help() -> None:
     print("  " + color("send FROM TO MESSAGE...", FG_CYAN) + "   - send IPC message FROM device TO device")
     print("  " + color("add-dev MEM", FG_CYAN) + "               - add new device with MEM memory")
     print("  " + color("add-proc DEV CPU MEM", FG_CYAN) + "      - add process to device DEV")
+    print("  " + color("remove-dev DEV", FG_CYAN) + "            - remove a device and all its processes")
     print("  " + color("log [N]", FG_CYAN) + "                   - show last N log lines (default 20)")
     print("  " + color("clear", FG_CYAN) + "                     - clear screen")
     print("  " + color("quit/exit", FG_CYAN) + "                 - exit console")
@@ -321,8 +322,35 @@ def repl(sim: SimulationEngine, logger: InMemoryLogger) -> None:
             if proc is None:
                 print(f"Cannot create process on device {dev_id}: not enough memory")
             else:
-                logger.log(f"[CMD] Created process pid={proc.pid} on device {dev_id}")
-                print(f"Created process pid={proc.pid} on device {dev_id}")
+                logger.log(f"[CMD] Created process pid={proc.pid} with cpu_time={cpu} on device {dev_id}")
+                print(f"Created process pid={proc.pid} with cpu_time={cpu} on device {dev_id}")
+
+            print_state(sim)
+            continue
+
+        if cmd == "remove-dev":
+            if len(args) < 1:
+                print("[CMD] Usage: remove-dev <device_id>")
+                continue
+
+            try:
+                dev_id = int(args[0])
+            except ValueError:
+                print("[CMD] device_id must be an integer")
+                continue
+
+            removed = False
+            for d in list(sim.devices):
+                if d.id == dev_id:
+                    sim.devices.remove(d)
+                    removed = True
+                    logger.log(f"[CMD] Removed device {dev_id} and all its processes")
+                    break
+
+            if not removed:
+                print(f"[CMD] No device with id={dev_id}")
+            else:
+                print(f"Removed device {dev_id}")
 
             print_state(sim)
             continue
@@ -360,22 +388,22 @@ def parse_args():
     parser.add_argument(
         "--procs", "-p",
         type=int,
-        default=5,
-        help="number of processes per device (default=5)"
+        default=2,
+        help="number of processes per device (default=2)"
     )
 
     parser.add_argument(
         "--fail", "-f",
         type=float,
-        default=0.3,
-        help="failure probability (default=0.3)"
+        default=0.05,
+        help="failure probability (default=0.1)"
     )
 
     parser.add_argument(
         "--imbalance", "-i",
         type=int,
-        default=1,
-        help="migration imbalance threshold (default=1)"
+        default=2,
+        help="migration imbalance threshold (default=2)"
     )
 
     return parser.parse_args()
