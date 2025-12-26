@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['run_fakeos.py'],
+    ['run_fakeOS.py'],
     pathex=['src'],
     binaries=[],
     datas=[],
