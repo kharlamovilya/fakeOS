@@ -76,7 +76,11 @@ class BasicOperatingSystem(IOperatingSystem):
         if self._current.remaining <= 0:
             self._current.state = ProcessState.FINISHED
             if self.logger:
-                self.logger.log(f"[OS] Process pid={self._current.pid} finished")
+                dev_info = f" on device {self.device_id}" if self.device_id is not None else ""
+                self.logger.log(
+                    f"[OS] Process pid={self._current.pid} finished"
+                    f"{dev_info}"
+                )
             self._current = None
 
         # remove FINISHED procs
