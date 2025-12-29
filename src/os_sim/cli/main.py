@@ -21,7 +21,7 @@ from os_sim.interfaces.device import IDevice
 ProcTemplate = Callable[[int], tuple[int, int]]  # (device_index) -> (cpu_time, mem)
 
 PROC_TEMPLATES: Sequence[ProcTemplate] = [
-    lambda i: (5 + i, i),
+    lambda i: (5 + i, i + 3),
 ]
 
 # === Simulation Parameters ===
@@ -65,20 +65,36 @@ def build_demo_simulation(
     devices: list[SimpleDevice] = []
 
     # create devices
-    for i in range(1, num_devices + 1):
-        mem = SimpleMemoryManager(_total=20)
+    for dev_idx in range(num_devices):
+        dev_id = dev_idx + 1
+
+        # 1) Plan processes for THIS device
+        proc_specs: list[tuple[int, int]] = []
+        for proc_idx in range(procs_per_device):
+            tmpl = proc_templates[proc_idx % len(proc_templates)]
+            cpu_time, mem_req = tmpl(proc_idx)
+            proc_specs.append((cpu_time + dev_idx, mem_req + dev_idx))
+
+        # 2) Calculate required memory for this device
+        required_mem = sum(mem for _, mem in proc_specs)
+        free_mem = max(10, required_mem // 5)  # 20% margin
+        total_mem = required_mem + free_mem
+
+        mem = SimpleMemoryManager(_total=total_mem)
         sched = RoundRobinScheduler()
         os_ = BasicOperatingSystem(memory=mem, scheduler=sched, logger=logger)
-        dev = SimpleDevice(_id=i, _os=os_)
-        # create processes
-        for k in range(procs_per_device):
-            template = proc_templates[k % len(proc_templates)]
-            cpu, mem_req = template(i)
-            proc = os_.create_process(cpu_time=cpu, mem_required=mem_req)
+        dev = SimpleDevice(_id=dev_id, _os=os_)
+
+        # 3) Actually create processes with the planned specs
+        for cpu_time, mem_req in proc_specs:
+            proc = os_.create_process(cpu_time=cpu_time, mem_required=mem_req)
             if proc is None:
-                print(f"Cannot create process on device {i}: not enough memory")
+                print(f"Cannot create process on device {dev_id}: not enough memory")
             else:
-                logger.log(f"[CMD] Created process pid={proc.pid} with cpu_time={cpu} on device {i}")
+                logger.log(
+                    f"[CMD] Created process pid={proc.pid} "
+                    f"with cpu_time={cpu_time} on device {dev_id}"
+                )
 
         devices.append(dev)
 
@@ -87,7 +103,10 @@ def build_demo_simulation(
     engine = SimulationEngine(
         devices=devices,
         task_migrator=SimpleTaskMigrator(imbalance_threshold=imbalance_threshold),
-        failure_strategy=RandomFailureStrategy(fail_probability=fail_probability, recovery_delay=RECOVERY_DELAY),
+        failure_strategy=RandomFailureStrategy(
+            fail_probability=fail_probability,
+            recovery_delay=RECOVERY_DELAY
+        ),
         message_bus=bus,
         logger=logger,
     )
